@@ -43,6 +43,11 @@ async function main() {
     res.json({ status: 'ok', publicUrl: config.publicUrl });
   });
 
+  // Redirect root to frontend dev server
+  app.get('/', (_req, res) => {
+    res.redirect('http://localhost:5173');
+  });
+
   app.listen(config.port, () => {
     console.log(`Backend running on http://localhost:${config.port}`);
     console.log(`Public URL: ${config.publicUrl}`);

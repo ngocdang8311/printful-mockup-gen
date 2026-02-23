@@ -72,8 +72,15 @@ export interface CreateTaskRequest {
 
 export async function createMockupTask(productId: number, body: CreateTaskRequest) {
   return request(async (api) => {
-    const { data } = await api.post(`/mockup-generator/create-task/${productId}`, body);
-    return data.result;
+    console.log(`[Printful] create-task/${productId}`, JSON.stringify(body, null, 2));
+    try {
+      const { data } = await api.post(`/mockup-generator/create-task/${productId}`, body);
+      return data.result;
+    } catch (err: any) {
+      const detail = err.response?.data || err.message;
+      console.error(`[Printful] create-task/${productId} FAILED:`, JSON.stringify(detail, null, 2));
+      throw err;
+    }
   });
 }
 

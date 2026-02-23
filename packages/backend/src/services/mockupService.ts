@@ -5,7 +5,6 @@ import slugify from 'slugify';
 import { printfulClient, CreateTaskRequest } from './printfulClient.js';
 import * as catalogService from './catalogService.js';
 import { PresetItem } from '../repositories/presetRepository.js';
-import { config } from '../config.js';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -26,19 +25,59 @@ export interface TaskResult {
   error?: string;
 }
 
+async function getPositionForPlacement(
+  productId: number,
+  variantId: number,
+  placement: string
+): Promise<any | null> {
+  const printfiles = await catalogService.getProductPrintfiles(productId);
+  const templates = await catalogService.getProductTemplates(productId);
+
+  // variant_printfiles is an array of { variant_id, placements: { front: printfile_id, ... } }
+  const vpfList: any[] = Object.values(printfiles?.variant_printfiles || {});
+  const vpf = vpfList.find((v: any) => v.variant_id === variantId);
+  if (!vpf) return null;
+
+  const printfileId = vpf.placements?.[placement];
+  if (!printfileId) return null;
+
+  // Find template matching this printfile_id
+  const templateList: any[] = templates?.templates || [];
+  const tmpl = templateList.find((t: any) => t.printfile_id === printfileId);
+  if (!tmpl || !tmpl.print_area_width) return null;
+
+  return {
+    area_width: tmpl.print_area_width,
+    area_height: tmpl.print_area_height,
+    width: tmpl.print_area_width,
+    height: tmpl.print_area_height,
+    top: tmpl.print_area_top,
+    left: tmpl.print_area_left,
+  };
+}
+
 export async function submitMockupTask(
   submission: TaskSubmission
 ): Promise<{ taskKey: string }> {
   const { presetItem, designUrl } = submission;
 
-  const files = presetItem.placements.map(placement => {
-    const posConfig = (presetItem.position_config as any)?.[placement];
-    return {
+  // Use first variant to determine position
+  const firstVariantId = presetItem.variant_ids[0];
+
+  const files = [];
+  for (const placement of presetItem.placements) {
+    const userPos = (presetItem.position_config as any)?.[placement];
+    const autoPos = userPos || await getPositionForPlacement(presetItem.product_id, firstVariantId, placement);
+
+    const file: any = {
       placement,
       image_url: designUrl,
-      ...(posConfig ? { position: posConfig } : {}),
     };
-  });
+    if (autoPos) {
+      file.position = autoPos;
+    }
+    files.push(file);
+  }
 
   const body: CreateTaskRequest = {
     variant_ids: presetItem.variant_ids,
@@ -46,7 +85,6 @@ export async function submitMockupTask(
     files,
   };
 
-  // Add mockup style options if present
   const styleOpts = presetItem.mockup_style_options as any;
   if (styleOpts?.option_groups?.length) {
     body.option_groups = styleOpts.option_groups;
@@ -87,7 +125,6 @@ export async function pollForResult(
       };
     }
 
-    // Exponential backoff
     delay = Math.min(delay * 1.5, maxDelay);
   }
 
@@ -111,7 +148,6 @@ export async function downloadMockupImages(
     const placementDir = path.join(outputDir, productSlug, placement);
     fs.mkdirSync(placementDir, { recursive: true });
 
-    // Download main mockup
     const mainUrl = mockup.mockup_url;
     if (mainUrl) {
       const filename = `mockup_${mockup.variant_ids?.join('-') || 'all'}.jpg`;
@@ -120,7 +156,6 @@ export async function downloadMockupImages(
       downloaded.push(filepath);
     }
 
-    // Download extras
     for (const extra of mockup.extra || []) {
       const extraSlug = slugify(extra.title || 'extra', { lower: true, strict: true });
       const filename = `${extraSlug}_${mockup.variant_ids?.join('-') || 'all'}.jpg`;
