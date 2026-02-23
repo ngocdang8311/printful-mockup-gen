@@ -59,7 +59,7 @@ export async function startGeneration(presetId: number, designId: number): Promi
   jobRepo.updateJobStatus(job.id, 'processing');
   emitProgress(job.id, { type: 'job_started', jobId: job.id, totalTasks: tasks.length });
 
-  processJob(job.id, tasks, designUrl, outputDir).catch(err => {
+  processJob(job.id, tasks, designUrl, outputDir, design.width, design.height).catch(err => {
     console.error(`Job ${job.id} failed:`, err);
     jobRepo.updateJobStatus(job.id, 'failed');
     emitProgress(job.id, { type: 'job_failed', jobId: job.id, error: err.message });
@@ -73,6 +73,8 @@ async function processJob(
   tasks: Array<{ dbTask: jobRepo.JobTask; presetItem: presetRepo.PresetItem }>,
   designUrl: string,
   outputDir: string,
+  designWidth: number,
+  designHeight: number,
 ) {
   const promises = tasks.map(({ dbTask, presetItem }) =>
     submissionQueue.add(async () => {
@@ -88,6 +90,8 @@ async function processJob(
         const { taskKey } = await mockupService.submitMockupTask({
           presetItem,
           designUrl,
+          designWidth,
+          designHeight,
         });
 
         jobRepo.updateJobTask(dbTask.id, { task_key: taskKey, status: 'polling' });

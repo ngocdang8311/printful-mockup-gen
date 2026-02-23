@@ -11,6 +11,8 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export interface TaskSubmission {
   presetItem: PresetItem;
   designUrl: string;
+  designWidth: number;
+  designHeight: number;
 }
 
 export interface TaskResult {
@@ -28,7 +30,9 @@ export interface TaskResult {
 async function getPositionForPlacement(
   productId: number,
   variantId: number,
-  placement: string
+  placement: string,
+  designWidth: number,
+  designHeight: number,
 ): Promise<any | null> {
   const printfiles = await catalogService.getProductPrintfiles(productId);
   const templates = await catalogService.getProductTemplates(productId);
@@ -46,20 +50,46 @@ async function getPositionForPlacement(
   const tmpl = templateList.find((t: any) => t.printfile_id === printfileId);
   if (!tmpl || !tmpl.print_area_width) return null;
 
+  const areaW = tmpl.print_area_width;
+  const areaH = tmpl.print_area_height;
+
+  // Fit design into print area while maintaining aspect ratio
+  let fitW: number, fitH: number;
+  if (designWidth > 0 && designHeight > 0) {
+    const designRatio = designWidth / designHeight;
+    const areaRatio = areaW / areaH;
+    if (designRatio > areaRatio) {
+      // Design is wider → fit by width
+      fitW = areaW;
+      fitH = Math.round(areaW / designRatio);
+    } else {
+      // Design is taller → fit by height
+      fitH = areaH;
+      fitW = Math.round(areaH * designRatio);
+    }
+  } else {
+    fitW = areaW;
+    fitH = areaH;
+  }
+
+  // Center within print area
+  const top = tmpl.print_area_top + Math.round((areaH - fitH) / 2);
+  const left = tmpl.print_area_left + Math.round((areaW - fitW) / 2);
+
   return {
-    area_width: tmpl.print_area_width,
-    area_height: tmpl.print_area_height,
-    width: tmpl.print_area_width,
-    height: tmpl.print_area_height,
-    top: tmpl.print_area_top,
-    left: tmpl.print_area_left,
+    area_width: areaW,
+    area_height: areaH,
+    width: fitW,
+    height: fitH,
+    top,
+    left,
   };
 }
 
 export async function submitMockupTask(
   submission: TaskSubmission
 ): Promise<{ taskKey: string }> {
-  const { presetItem, designUrl } = submission;
+  const { presetItem, designUrl, designWidth, designHeight } = submission;
 
   // Use first variant to determine position
   const firstVariantId = presetItem.variant_ids[0];
@@ -67,7 +97,7 @@ export async function submitMockupTask(
   const files = [];
   for (const placement of presetItem.placements) {
     const userPos = (presetItem.position_config as any)?.[placement];
-    const autoPos = userPos || await getPositionForPlacement(presetItem.product_id, firstVariantId, placement);
+    const autoPos = userPos || await getPositionForPlacement(presetItem.product_id, firstVariantId, placement, designWidth, designHeight);
 
     const file: any = {
       placement,
