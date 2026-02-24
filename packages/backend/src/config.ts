@@ -13,7 +13,7 @@ export const config = {
   printifyShopId: process.env.PRINTIFY_SHOP_ID || '',
   publicUrl: process.env.PUBLIC_URL || 'http://localhost:3001',
   nodeEnv: process.env.NODE_ENV || 'development',
-  dbPath: path.resolve(__dirname, '../../../data.db'),
-  uploadsDir: path.resolve(__dirname, '../../../uploads'),
-  outputDir: path.resolve(__dirname, '../../../output'),
+  dbPath: process.env.DB_PATH || path.resolve(__dirname, '../../../data.db'),
+  uploadsDir: process.env.UPLOADS_DIR || path.resolve(__dirname, '../../../uploads'),
+  outputDir: process.env.OUTPUT_DIR || path.resolve(__dirname, '../../../output'),
 };

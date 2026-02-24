@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Containerfile
+    container_name: mockup-gen
+    ports:
+      - "127.0.0.1:3003:3003"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./output:/app/output
+    env_file: .env.production
+    restart: always

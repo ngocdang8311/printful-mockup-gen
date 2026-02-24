@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { initDb, runMigrations } from './db/database.js';
 import catalogRouter from './routes/catalog.js';
@@ -45,10 +47,20 @@ async function main() {
     res.json({ status: 'ok', publicUrl: config.publicUrl });
   });
 
-  // Redirect root to frontend dev server
-  app.get('/', (_req, res) => {
-    res.redirect('http://localhost:5173');
-  });
+  // Serve frontend
+  if (config.nodeEnv === 'production') {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const frontendDir = process.env.FRONTEND_DIR || path.resolve(__dirname, '../../frontend/dist');
+    app.use(express.static(frontendDir));
+    // SPA fallback: non-API routes → index.html
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(frontendDir, 'index.html'));
+    });
+  } else {
+    app.get('/', (_req, res) => {
+      res.redirect('http://localhost:5173');
+    });
+  }
 
   app.listen(config.port, () => {
     console.log(`Backend running on http://localhost:${config.port}`);

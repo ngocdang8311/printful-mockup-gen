@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.production
+*.db
+uploads/*
+output/*
+data/*
+.git
+.claude
+CLAUDE.md
+*.md
