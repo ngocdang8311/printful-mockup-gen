@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -8,6 +8,20 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.resolve(__dirname, '../../../../.env');
 
 const router = Router();
+
+// Auth guard: require API_SECRET header for write operations
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const secret = config.apiSecret;
+  if (!secret) return next(); // no secret configured = open access (dev mode)
+  const provided = req.headers['x-api-secret'] || req.query.secret;
+  if (provided !== secret) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
+}
+
+router.use(requireAuth);
 
 function parseEnvFile(): Record<string, string> {
   if (!fs.existsSync(envPath)) return {};

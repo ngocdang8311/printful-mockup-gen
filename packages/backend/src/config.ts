@@ -11,6 +11,7 @@ export const config = {
   printfulToken: process.env.PRINTFUL_TOKEN || '',
   printifyToken: process.env.PRINTIFY_TOKEN || '',
   printifyShopId: process.env.PRINTIFY_SHOP_ID || '',
+  apiSecret: process.env.API_SECRET || '',
   publicUrl: process.env.PUBLIC_URL || 'http://localhost:3001',
   nodeEnv: process.env.NODE_ENV || 'development',
   dbPath: process.env.DB_PATH || path.resolve(__dirname, '../../../data.db'),

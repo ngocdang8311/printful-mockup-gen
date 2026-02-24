@@ -78,6 +78,14 @@ export function GeneratePage() {
     return Array.from(placementSet);
   }, [presetDetail]);
 
+  // Sync preset from URL when navigating
+  useEffect(() => {
+    const paramId = Number(searchParams.get('presetId')) || 0;
+    if (paramId > 0 && paramId !== selectedPresetId) {
+      setSelectedPresetId(paramId);
+    }
+  }, [searchParams]);
+
   // Reset when preset changes
   useEffect(() => {
     setPlacementDesignOverrides({});
@@ -107,11 +115,14 @@ export function GeneratePage() {
     }
   };
 
-  const subscribeToJobUpdates = useCallback((jobId: number, trackerIndex: number) => {
+  const subscribeToJobUpdates = useCallback((jobId: number) => {
     const unsub = api.subscribeToJob(jobId, (data: TaskEvent) => {
       setJobTrackers(prev => {
+        const idx = prev.findIndex(t => t.jobId === jobId);
+        if (idx === -1) return prev;
+
         const updated = [...prev];
-        const tracker = { ...updated[trackerIndex] };
+        const tracker = { ...updated[idx] };
 
         tracker.events = [...tracker.events, data];
 
@@ -140,7 +151,7 @@ export function GeneratePage() {
           if (data.failedTasks !== undefined) tracker.failedTasks = data.failedTasks;
         }
 
-        updated[trackerIndex] = tracker;
+        updated[idx] = tracker;
         return updated;
       });
     });
@@ -203,7 +214,7 @@ export function GeneratePage() {
         setJobTrackers([...newTrackers]);
 
         // Subscribe to SSE
-        subscribeToJobUpdates(job.id, i);
+        subscribeToJobUpdates(job.id);
       } catch (err: any) {
         toast.error(`Failed to start ${designName}: ${err.response?.data?.error || err.message}`);
       }

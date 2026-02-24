@@ -46,6 +46,21 @@ export async function startGeneration(
 
   const provider = (preset as any).provider || 'printful';
 
+  // Validate designMap BEFORE creating job (avoid orphaned jobs)
+  let placementDesigns: Record<string, PlacementDesign> = {};
+  if (provider !== 'printify' && designMap) {
+    for (const [placement, dId] of Object.entries(designMap)) {
+      if (dId === designId) continue;
+      const d = designRepo.getDesignById(dId);
+      if (!d) throw new Error(`Design ${dId} not found`);
+      placementDesigns[placement] = {
+        designUrl: getDesignPublicUrl(d),
+        designWidth: d.width,
+        designHeight: d.height,
+      };
+    }
+  }
+
   const presetSlug = slugify(preset.name, { lower: true, strict: true });
   const designSlug = slugify(design.name, { lower: true, strict: true });
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -79,20 +94,6 @@ export async function startGeneration(
       designHeight: design.height,
     };
 
-    const placementDesigns: Record<string, PlacementDesign> = {};
-    if (designMap) {
-      for (const [placement, dId] of Object.entries(designMap)) {
-        if (dId === designId) continue;
-        const d = designRepo.getDesignById(dId);
-        if (!d) throw new Error(`Design ${dId} not found`);
-        placementDesigns[placement] = {
-          designUrl: getDesignPublicUrl(d),
-          designWidth: d.width,
-          designHeight: d.height,
-        };
-      }
-    }
-
     processPrintfulJob(job.id, tasks, defaultDesign, placementDesigns, outputDir).catch(err => {
       console.error(`Job ${job.id} failed:`, err);
       jobRepo.updateJobStatus(job.id, 'failed');
@@ -114,6 +115,7 @@ async function processPrintfulJob(
 ) {
   const promises = tasks.map(({ dbTask, presetItem }) =>
     submissionQueue.add(async () => {
+      if (isJobCancelled(jobId)) return;
       try {
         jobRepo.updateJobTask(dbTask.id, { status: 'submitting' });
         emitProgress(jobId, {
@@ -128,6 +130,8 @@ async function processPrintfulJob(
           placementDesigns,
         });
 
+        if (isJobCancelled(jobId)) return;
+
         jobRepo.updateJobTask(dbTask.id, { task_key: taskKey, status: 'polling' });
         emitProgress(jobId, {
           type: 'task_polling',
@@ -136,6 +140,8 @@ async function processPrintfulJob(
         });
 
         const result = await mockupService.pollForResult(taskKey);
+
+        if (isJobCancelled(jobId)) return;
 
         if (result.status === 'failed') {
           jobRepo.updateJobTask(dbTask.id, { status: 'failed', error: result.error || '' });
@@ -179,6 +185,7 @@ async function processPrintfulJob(
           productName: presetItem.product_name,
         });
       } catch (err: any) {
+        if (isJobCancelled(jobId)) return;
         jobRepo.updateJobTask(dbTask.id, { status: 'failed', error: err.message });
         jobRepo.incrementJobFailed(jobId);
         emitProgress(jobId, {
@@ -191,7 +198,7 @@ async function processPrintfulJob(
   );
 
   await Promise.all(promises);
-  finalizeJob(jobId, outputDir);
+  if (!isJobCancelled(jobId)) finalizeJob(jobId, outputDir);
 }
 
 // ==================== Printify Job Processing ====================
@@ -202,6 +209,8 @@ async function processPrintifyJob(
   design: designRepo.Design,
   outputDir: string,
 ) {
+  if (isJobCancelled(jobId)) return;
+
   // Step 1: Upload design to Printify once
   emitProgress(jobId, { type: 'upload_started', jobId });
   let designImageId: string;
@@ -221,6 +230,7 @@ async function processPrintifyJob(
   // Step 2: Process each task (blueprint+provider)
   const promises = tasks.map(({ dbTask, presetItem }) =>
     submissionQueue.add(async () => {
+      if (isJobCancelled(jobId)) return;
       try {
         jobRepo.updateJobTask(dbTask.id, { status: 'submitting' });
         emitProgress(jobId, {
@@ -236,6 +246,8 @@ async function processPrintifyJob(
           designWidth: design.width,
           designHeight: design.height,
         });
+
+        if (isJobCancelled(jobId)) return;
 
         if (result.status === 'failed') {
           jobRepo.updateJobTask(dbTask.id, { status: 'failed', error: result.error || '' });
@@ -271,6 +283,7 @@ async function processPrintifyJob(
           productName: presetItem.product_name,
         });
       } catch (err: any) {
+        if (isJobCancelled(jobId)) return;
         jobRepo.updateJobTask(dbTask.id, { status: 'failed', error: err.message });
         jobRepo.incrementJobFailed(jobId);
         emitProgress(jobId, {
@@ -283,7 +296,7 @@ async function processPrintifyJob(
   );
 
   await Promise.all(promises);
-  finalizeJob(jobId, outputDir);
+  if (!isJobCancelled(jobId)) finalizeJob(jobId, outputDir);
 }
 
 // ==================== Shared ====================
