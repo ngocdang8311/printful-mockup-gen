@@ -36,6 +36,9 @@ router.get('/', (_req: Request, res: Response) => {
     res.json({
       printfulToken: env.PRINTFUL_TOKEN ? maskToken(env.PRINTFUL_TOKEN) : '',
       printfulTokenSet: !!env.PRINTFUL_TOKEN && env.PRINTFUL_TOKEN !== 'your_printful_api_token_here',
+      printifyToken: env.PRINTIFY_TOKEN ? maskToken(env.PRINTIFY_TOKEN) : '',
+      printifyTokenSet: !!env.PRINTIFY_TOKEN,
+      printifyShopId: env.PRINTIFY_SHOP_ID || '',
       publicUrl: env.PUBLIC_URL || config.publicUrl,
       port: env.PORT || String(config.port),
     });
@@ -51,9 +54,19 @@ router.put('/', (req: Request, res: Response) => {
 
     if (printfulToken !== undefined && printfulToken !== '') {
       env.PRINTFUL_TOKEN = printfulToken;
-      // Update runtime config
       (config as any).printfulToken = printfulToken;
     }
+
+    const { printifyToken, printifyShopId } = req.body;
+    if (printifyToken !== undefined && printifyToken !== '') {
+      env.PRINTIFY_TOKEN = printifyToken;
+      (config as any).printifyToken = printifyToken;
+    }
+    if (printifyShopId !== undefined) {
+      env.PRINTIFY_SHOP_ID = printifyShopId;
+      (config as any).printifyShopId = printifyShopId;
+    }
+
     if (publicUrl !== undefined) {
       env.PUBLIC_URL = publicUrl;
       (config as any).publicUrl = publicUrl;
@@ -82,6 +95,17 @@ router.get('/test-connection', async (_req: Request, res: Response) => {
     res.json({ success: true, productCount: store.length });
   } catch (err: any) {
     res.json({ success: false, error: err.response?.data?.error?.message || err.message });
+  }
+});
+
+// Test Printify connection
+router.get('/test-printify', async (_req: Request, res: Response) => {
+  try {
+    const { printifyClient } = await import('../services/printifyClient.js');
+    const shops = await printifyClient.getShops();
+    res.json({ success: true, shops });
+  } catch (err: any) {
+    res.json({ success: false, error: err.response?.data?.message || err.message });
   }
 });
 

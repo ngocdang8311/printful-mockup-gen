@@ -39,4 +39,20 @@ router.get('/products/:id/templates', async (req: Request, res: Response) => {
   }
 });
 
+router.get('/products/:id/placements', async (req: Request, res: Response) => {
+  try {
+    const productId = Number(req.params.id);
+    const [printfiles, templates] = await Promise.all([
+      catalogService.getProductPrintfiles(productId),
+      catalogService.getProductTemplates(productId),
+    ]);
+    res.json({
+      placements: printfiles?.available_placements || {},
+      conflicting: templates?.conflicting_placements || [],
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

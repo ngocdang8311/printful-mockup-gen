@@ -11,6 +11,8 @@ import * as api from '@/api/client';
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const [token, setToken] = useState('');
+  const [printifyToken, setPrintifyToken] = useState('');
+  const [printifyShopId, setPrintifyShopId] = useState('');
   const [publicUrl, setPublicUrl] = useState('');
 
   const { data: settings, isLoading } = useQuery({
@@ -21,6 +23,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (settings) {
       setPublicUrl(settings.publicUrl || '');
+      setPrintifyShopId(settings.printifyShopId || '');
     }
   }, [settings]);
 
@@ -29,6 +32,7 @@ export function SettingsPage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['settings'] });
       setToken('');
+      setPrintifyToken('');
       toast.success(data.message || 'Settings saved');
     },
     onError: (err: any) => {
@@ -40,9 +44,15 @@ export function SettingsPage() {
     mutationFn: api.testConnection,
   });
 
+  const testPrintifyMutation = useMutation({
+    mutationFn: api.testPrintifyConnection,
+  });
+
   const handleSave = () => {
     const updates: any = {};
     if (token.trim()) updates.printfulToken = token.trim();
+    if (printifyToken.trim()) updates.printifyToken = printifyToken.trim();
+    if (printifyShopId !== (settings?.printifyShopId || '')) updates.printifyShopId = printifyShopId;
     if (publicUrl.trim()) updates.publicUrl = publicUrl.trim();
     if (Object.keys(updates).length === 0) {
       toast.info('Nothing to save');
@@ -56,6 +66,18 @@ export function SettingsPage() {
       onSuccess: (data) => {
         if (data.success) {
           toast.success(`Connected! Found ${data.productCount} products in catalog.`);
+        } else {
+          toast.error(`Connection failed: ${data.error}`);
+        }
+      },
+    });
+  };
+
+  const handleTestPrintify = () => {
+    testPrintifyMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        if (data.success) {
+          toast.success(`Connected! Found ${data.shops.length} shop(s).`);
         } else {
           toast.error(`Connection failed: ${data.error}`);
         }
@@ -142,6 +164,95 @@ export function SettingsPage() {
           </CardFooter>
         </Card>
 
+        {/* Printify Token */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Printify API Token
+              {settings?.printifyTokenSet ? (
+                <Badge className="bg-green-600">Connected</Badge>
+              ) : (
+                <Badge variant="secondary">Not set</Badge>
+              )}
+            </CardTitle>
+            <CardDescription>
+              Get your API token from Printify &rarr; My Account &rarr; Connections &rarr; Personal Access Token.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {settings?.printifyTokenSet && (
+              <div className="text-sm text-muted-foreground">
+                Current token: <code className="bg-muted px-1 rounded">{settings.printifyToken}</code>
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                {settings?.printifyTokenSet ? 'Update token' : 'Enter token'}
+              </label>
+              <Input
+                type="password"
+                value={printifyToken}
+                onChange={e => setPrintifyToken(e.target.value)}
+                placeholder="Paste your Printify API token here"
+              />
+            </div>
+            {settings?.printifyTokenSet && (
+              <div>
+                <label className="text-sm font-medium mb-1 block">Shop ID</label>
+                <Input
+                  value={printifyShopId}
+                  onChange={e => setPrintifyShopId(e.target.value)}
+                  placeholder="Enter your Printify shop ID"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Click "Test Connection" to see your available shops and their IDs.
+                </p>
+              </div>
+            )}
+          </CardContent>
+          <CardFooter className="gap-2">
+            <Button onClick={handleSave} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Save
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleTestPrintify}
+              disabled={testPrintifyMutation.isPending || !settings?.printifyTokenSet}
+            >
+              {testPrintifyMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Plug className="h-4 w-4 mr-2" />
+              )}
+              Test Connection
+            </Button>
+            {testPrintifyMutation.data && (
+              <span className="flex items-center gap-1 text-sm">
+                {testPrintifyMutation.data.success ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 text-green-500" />
+                    <span className="text-green-600">
+                      {testPrintifyMutation.data.shops.map((s: any) =>
+                        `${s.title} (ID: ${s.id})`
+                      ).join(', ')}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 text-destructive" />
+                    <span className="text-destructive">Failed</span>
+                  </>
+                )}
+              </span>
+            )}
+          </CardFooter>
+        </Card>
+
         {/* Public URL */}
         <Card>
           <CardHeader>
@@ -149,6 +260,7 @@ export function SettingsPage() {
             <CardDescription>
               Printful needs a public URL to access your design images.
               Use ngrok or cloudflare tunnel, then paste the URL here.
+              (Not needed for Printify — designs are uploaded directly.)
             </CardDescription>
           </CardHeader>
           <CardContent>

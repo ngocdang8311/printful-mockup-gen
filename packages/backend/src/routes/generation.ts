@@ -6,11 +6,11 @@ const router = Router();
 
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { presetId, designId } = req.body;
+    const { presetId, designId, designMap } = req.body;
     if (!presetId || !designId) {
       return res.status(400).json({ error: 'presetId and designId are required' });
     }
-    const job = await queueService.startGeneration(presetId, designId);
+    const job = await queueService.startGeneration(presetId, designId, designMap);
     res.status(201).json(job);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

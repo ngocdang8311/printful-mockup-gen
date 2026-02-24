@@ -14,9 +14,9 @@ router.get('/', (_req: Request, res: Response) => {
 
 router.post('/', (req: Request, res: Response) => {
   try {
-    const { name, description = '' } = req.body;
+    const { name, description = '', provider = 'printful' } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
-    const preset = presetRepo.createPreset(name, description);
+    const preset = presetRepo.createPreset(name, description, provider);
     res.status(201).json(preset);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -49,6 +49,16 @@ router.delete('/:id', (req: Request, res: Response) => {
     const deleted = presetRepo.deletePreset(Number(req.params.id));
     if (!deleted) return res.status(404).json({ error: 'Preset not found' });
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:id/clone', (req: Request, res: Response) => {
+  try {
+    const cloned = presetRepo.clonePreset(Number(req.params.id));
+    if (!cloned) return res.status(404).json({ error: 'Preset not found' });
+    res.status(201).json(cloned);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

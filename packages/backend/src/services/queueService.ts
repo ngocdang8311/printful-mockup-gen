@@ -7,6 +7,8 @@ import * as presetRepo from '../repositories/presetRepository.js';
 import * as designRepo from '../repositories/designRepository.js';
 import * as jobRepo from '../repositories/jobRepository.js';
 import * as mockupService from './mockupService.js';
+import * as printifyMockupService from './printifyMockupService.js';
+import { PlacementDesign } from './mockupService.js';
 import { getDesignPublicUrl } from './designService.js';
 
 // SSE connections per job
@@ -30,7 +32,11 @@ function emitProgress(jobId: number, data: any) {
 const submissionQueue = new PQueue({ concurrency: 2 });
 const downloadQueue = new PQueue({ concurrency: 5 });
 
-export async function startGeneration(presetId: number, designId: number): Promise<jobRepo.Job> {
+export async function startGeneration(
+  presetId: number,
+  designId: number,
+  designMap?: Record<string, number>,
+): Promise<jobRepo.Job> {
   const preset = presetRepo.getPresetById(presetId);
   if (!preset) throw new Error('Preset not found');
   if (preset.items.length === 0) throw new Error('Preset has no items');
@@ -38,7 +44,8 @@ export async function startGeneration(presetId: number, designId: number): Promi
   const design = designRepo.getDesignById(designId);
   if (!design) throw new Error('Design not found');
 
-  const designUrl = getDesignPublicUrl(design);
+  const provider = (preset as any).provider || 'printful';
+
   const presetSlug = slugify(preset.name, { lower: true, strict: true });
   const designSlug = slugify(design.name, { lower: true, strict: true });
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -46,7 +53,7 @@ export async function startGeneration(presetId: number, designId: number): Promi
   const outputDir = path.join(config.outputDir, outputDirName);
   fs.mkdirSync(outputDir, { recursive: true });
 
-  const job = jobRepo.createJob(presetId, designId, preset.items.length, outputDirName);
+  const job = jobRepo.createJob(presetId, designId, preset.items.length, outputDirName, provider);
 
   // Create task records
   const tasks: Array<{ dbTask: jobRepo.JobTask; presetItem: presetRepo.PresetItem }> = [];
@@ -59,27 +66,55 @@ export async function startGeneration(presetId: number, designId: number): Promi
   jobRepo.updateJobStatus(job.id, 'processing');
   emitProgress(job.id, { type: 'job_started', jobId: job.id, totalTasks: tasks.length });
 
-  processJob(job.id, tasks, designUrl, outputDir, design.width, design.height).catch(err => {
-    console.error(`Job ${job.id} failed:`, err);
-    jobRepo.updateJobStatus(job.id, 'failed');
-    emitProgress(job.id, { type: 'job_failed', jobId: job.id, error: err.message });
-  });
+  if (provider === 'printify') {
+    processPrintifyJob(job.id, tasks, design, outputDir).catch(err => {
+      console.error(`Printify Job ${job.id} failed:`, err);
+      jobRepo.updateJobStatus(job.id, 'failed');
+      emitProgress(job.id, { type: 'job_failed', jobId: job.id, error: err.message });
+    });
+  } else {
+    const defaultDesign: PlacementDesign = {
+      designUrl: getDesignPublicUrl(design),
+      designWidth: design.width,
+      designHeight: design.height,
+    };
+
+    const placementDesigns: Record<string, PlacementDesign> = {};
+    if (designMap) {
+      for (const [placement, dId] of Object.entries(designMap)) {
+        if (dId === designId) continue;
+        const d = designRepo.getDesignById(dId);
+        if (!d) throw new Error(`Design ${dId} not found`);
+        placementDesigns[placement] = {
+          designUrl: getDesignPublicUrl(d),
+          designWidth: d.width,
+          designHeight: d.height,
+        };
+      }
+    }
+
+    processPrintfulJob(job.id, tasks, defaultDesign, placementDesigns, outputDir).catch(err => {
+      console.error(`Job ${job.id} failed:`, err);
+      jobRepo.updateJobStatus(job.id, 'failed');
+      emitProgress(job.id, { type: 'job_failed', jobId: job.id, error: err.message });
+    });
+  }
 
   return job;
 }
 
-async function processJob(
+// ==================== Printful Job Processing ====================
+
+async function processPrintfulJob(
   jobId: number,
   tasks: Array<{ dbTask: jobRepo.JobTask; presetItem: presetRepo.PresetItem }>,
-  designUrl: string,
+  defaultDesign: PlacementDesign,
+  placementDesigns: Record<string, PlacementDesign>,
   outputDir: string,
-  designWidth: number,
-  designHeight: number,
 ) {
   const promises = tasks.map(({ dbTask, presetItem }) =>
     submissionQueue.add(async () => {
       try {
-        // Submit task
         jobRepo.updateJobTask(dbTask.id, { status: 'submitting' });
         emitProgress(jobId, {
           type: 'task_submitting',
@@ -89,9 +124,8 @@ async function processJob(
 
         const { taskKey } = await mockupService.submitMockupTask({
           presetItem,
-          designUrl,
-          designWidth,
-          designHeight,
+          defaultDesign,
+          placementDesigns,
         });
 
         jobRepo.updateJobTask(dbTask.id, { task_key: taskKey, status: 'polling' });
@@ -101,7 +135,6 @@ async function processJob(
           taskKey,
         });
 
-        // Poll for result
         const result = await mockupService.pollForResult(taskKey);
 
         if (result.status === 'failed') {
@@ -115,7 +148,6 @@ async function processJob(
           return;
         }
 
-        // Download images
         jobRepo.updateJobTask(dbTask.id, { status: 'downloading' });
         emitProgress(jobId, { type: 'task_downloading', taskId: dbTask.id });
 
@@ -124,11 +156,20 @@ async function processJob(
           strict: true,
         });
 
-        const downloadedFiles = await downloadQueue.addAll(
-          [async () => mockupService.downloadMockupImages(result.mockups, outputDir, productSlug)]
+        const styleOpts = presetItem.mockup_style_options as any;
+        const downloadAllExtras = styleOpts?.download_extras === true;
+
+        await downloadQueue.addAll(
+          [async () => mockupService.downloadMockupImages(result.mockups, outputDir, productSlug, downloadAllExtras)]
         );
 
-        const mockupUrls = result.mockups.map(m => m.mockup_url).filter(Boolean);
+        const mockupUrls = result.mockups.flatMap(m => {
+          const urls = m.mockup_url ? [m.mockup_url] : [];
+          if (downloadAllExtras && m.extra) {
+            urls.push(...m.extra.map(e => e.url).filter(Boolean));
+          }
+          return urls;
+        });
         jobRepo.updateJobTask(dbTask.id, { status: 'completed', mockup_urls: mockupUrls });
         jobRepo.incrementJobCompleted(jobId);
         emitProgress(jobId, {
@@ -150,8 +191,104 @@ async function processJob(
   );
 
   await Promise.all(promises);
+  finalizeJob(jobId, outputDir);
+}
 
-  // Check final status
+// ==================== Printify Job Processing ====================
+
+async function processPrintifyJob(
+  jobId: number,
+  tasks: Array<{ dbTask: jobRepo.JobTask; presetItem: presetRepo.PresetItem }>,
+  design: designRepo.Design,
+  outputDir: string,
+) {
+  // Step 1: Upload design to Printify once
+  emitProgress(jobId, { type: 'upload_started', jobId });
+  let designImageId: string;
+  try {
+    designImageId = await printifyMockupService.uploadDesignToPrintify(
+      design.filepath,
+      design.filename,
+    );
+    emitProgress(jobId, { type: 'upload_completed', jobId, imageId: designImageId });
+  } catch (err: any) {
+    console.error(`[Printify] Design upload failed:`, err.message);
+    jobRepo.updateJobStatus(jobId, 'failed');
+    emitProgress(jobId, { type: 'job_failed', jobId, error: `Design upload failed: ${err.message}` });
+    return;
+  }
+
+  // Step 2: Process each task (blueprint+provider)
+  const promises = tasks.map(({ dbTask, presetItem }) =>
+    submissionQueue.add(async () => {
+      try {
+        jobRepo.updateJobTask(dbTask.id, { status: 'submitting' });
+        emitProgress(jobId, {
+          type: 'task_submitting',
+          taskId: dbTask.id,
+          productName: presetItem.product_name,
+        });
+
+        // Generate mockups via temp product creation
+        const result = await printifyMockupService.generateMockups({
+          presetItem,
+          designImageId,
+          designWidth: design.width,
+          designHeight: design.height,
+        });
+
+        if (result.status === 'failed') {
+          jobRepo.updateJobTask(dbTask.id, { status: 'failed', error: result.error || '' });
+          jobRepo.incrementJobFailed(jobId);
+          emitProgress(jobId, {
+            type: 'task_failed',
+            taskId: dbTask.id,
+            error: result.error,
+          });
+          return;
+        }
+
+        // Download images
+        jobRepo.updateJobTask(dbTask.id, { status: 'downloading' });
+        emitProgress(jobId, { type: 'task_downloading', taskId: dbTask.id });
+
+        const productSlug = slugify(presetItem.product_name || `blueprint-${presetItem.product_id}`, {
+          lower: true,
+          strict: true,
+        });
+
+        await downloadQueue.addAll(
+          [async () => printifyMockupService.downloadMockupImages(result.mockups, outputDir, productSlug)]
+        );
+
+        const mockupUrls = result.mockups.map(m => m.src).filter(Boolean);
+        jobRepo.updateJobTask(dbTask.id, { status: 'completed', mockup_urls: mockupUrls });
+        jobRepo.incrementJobCompleted(jobId);
+        emitProgress(jobId, {
+          type: 'task_completed',
+          taskId: dbTask.id,
+          mockupUrls,
+          productName: presetItem.product_name,
+        });
+      } catch (err: any) {
+        jobRepo.updateJobTask(dbTask.id, { status: 'failed', error: err.message });
+        jobRepo.incrementJobFailed(jobId);
+        emitProgress(jobId, {
+          type: 'task_failed',
+          taskId: dbTask.id,
+          error: err.message,
+        });
+      }
+    })
+  );
+
+  await Promise.all(promises);
+  finalizeJob(jobId, outputDir);
+}
+
+// ==================== Shared ====================
+
+function finalizeJob(jobId: number, outputDir: string) {
   const finalJob = jobRepo.getJobById(jobId);
   if (finalJob) {
     const allDone = finalJob.completed_tasks + finalJob.failed_tasks >= finalJob.total_tasks;
@@ -159,7 +296,6 @@ async function processJob(
       const finalStatus = finalJob.failed_tasks === finalJob.total_tasks ? 'failed' : 'completed';
       jobRepo.updateJobStatus(jobId, finalStatus);
 
-      // Write summary
       const summaryPath = path.join(outputDir, '_summary.json');
       fs.writeFileSync(summaryPath, JSON.stringify({
         jobId,

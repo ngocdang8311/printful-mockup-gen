@@ -4,6 +4,7 @@ export interface Preset {
   id: number;
   name: string;
   description: string;
+  provider: string;
   created_at: string;
   updated_at: string;
 }
@@ -43,14 +44,18 @@ export function getPresetById(id: number): (Preset & { items: PresetItem[] }) | 
   return { ...preset, items: items.map(parseItem) };
 }
 
-export function createPreset(name: string, description: string): Preset & { items: PresetItem[] } {
-  runSql('INSERT INTO presets (name, description) VALUES (?, ?)', [name, description]);
+export function createPreset(name: string, description: string, provider = 'printful'): Preset & { items: PresetItem[] } {
+  runSql('INSERT INTO presets (name, description, provider) VALUES (?, ?, ?)', [name, description, provider]);
   const id = getLastInsertRowId();
   return getPresetById(id)!;
 }
 
-export function updatePreset(id: number, name: string, description: string): (Preset & { items: PresetItem[] }) | null {
-  runSql("UPDATE presets SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?", [name, description, id]);
+export function updatePreset(id: number, name: string, description: string, provider?: string): (Preset & { items: PresetItem[] }) | null {
+  if (provider !== undefined) {
+    runSql("UPDATE presets SET name = ?, description = ?, provider = ?, updated_at = datetime('now') WHERE id = ?", [name, description, provider, id]);
+  } else {
+    runSql("UPDATE presets SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?", [name, description, id]);
+  }
   return getPresetById(id);
 }
 
@@ -112,6 +117,27 @@ export function updatePresetItem(
 
   const row = queryOne('SELECT * FROM preset_items WHERE id = ?', [itemId]);
   return parseItem(row);
+}
+
+export function clonePreset(id: number): (Preset & { items: PresetItem[] }) | null {
+  const source = getPresetById(id);
+  if (!source) return null;
+
+  const cloned = createPreset(`${source.name} (Copy)`, source.description, source.provider);
+
+  for (const item of source.items) {
+    addPresetItem(cloned.id, {
+      product_id: item.product_id,
+      product_name: item.product_name,
+      variant_ids: item.variant_ids,
+      variant_labels: item.variant_labels,
+      placements: item.placements,
+      mockup_style_options: item.mockup_style_options,
+      position_config: item.position_config,
+    });
+  }
+
+  return getPresetById(cloned.id);
 }
 
 export function deletePresetItem(presetId: number, itemId: number): boolean {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Plus, Trash2, Search, ChevronRight } from 'lucide-react';
+import { Save, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import * as api from '@/api/client';
 import { ProductBrowser } from '@/components/catalog/ProductBrowser';
 import { VariantPicker } from '@/components/catalog/VariantPicker';
+import { PrintifyBlueprintBrowser } from '@/components/catalog/PrintifyBlueprintBrowser';
+import { PrintifyVariantPicker } from '@/components/catalog/PrintifyVariantPicker';
 
 export function PresetBuilderPage() {
   const { id } = useParams();
@@ -19,6 +21,7 @@ export function PresetBuilderPage() {
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [provider, setProvider] = useState<'printful' | 'printify'>('printful');
   const [showBrowser, setShowBrowser] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
 
@@ -32,6 +35,7 @@ export function PresetBuilderPage() {
     if (preset) {
       setName(preset.name);
       setDescription(preset.description || '');
+      setProvider(preset.provider || 'printful');
     }
   }, [preset]);
 
@@ -40,7 +44,7 @@ export function PresetBuilderPage() {
       if (isEdit) {
         return api.updatePreset(Number(id), { name, description });
       }
-      return api.createPreset({ name, description });
+      return api.createPreset({ name, description, provider });
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['presets'] });
@@ -78,6 +82,8 @@ export function PresetBuilderPage() {
     });
   };
 
+  const currentProvider = preset?.provider || provider;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -89,9 +95,39 @@ export function PresetBuilderPage() {
       </div>
 
       <div className="space-y-6">
-        {/* Name & Description */}
+        {/* Name, Description & Provider */}
         <Card>
           <CardContent className="pt-6 space-y-4">
+            {/* Provider toggle (only on create) */}
+            {!isEdit && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Provider</label>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant={provider === 'printful' ? 'default' : 'outline'}
+                    onClick={() => setProvider('printful')}
+                  >
+                    Printful
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={provider === 'printify' ? 'default' : 'outline'}
+                    onClick={() => setProvider('printify')}
+                  >
+                    Printify
+                  </Button>
+                </div>
+              </div>
+            )}
+            {isEdit && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">Provider:</span>
+                <Badge variant={currentProvider === 'printify' ? 'secondary' : 'default'}>
+                  {currentProvider === 'printify' ? 'Printify' : 'Printful'}
+                </Badge>
+              </div>
+            )}
             <div>
               <label className="text-sm font-medium mb-1 block">Name</label>
               <Input
@@ -124,7 +160,7 @@ export function PresetBuilderPage() {
             <CardContent>
               {(!preset?.items || preset.items.length === 0) ? (
                 <p className="text-muted-foreground text-sm py-4 text-center">
-                  No products added yet. Click "Add Product" to browse the Printful catalog.
+                  No products added yet. Click "Add Product" to browse the {currentProvider === 'printify' ? 'Printify' : 'Printful'} catalog.
                 </p>
               ) : (
                 <div className="space-y-3">
@@ -137,7 +173,12 @@ export function PresetBuilderPage() {
                         <div className="font-medium">{item.product_name}</div>
                         <div className="text-sm text-muted-foreground flex gap-2 mt-1">
                           <Badge variant="secondary">{item.variant_ids.length} variants</Badge>
-                          <Badge variant="secondary">{item.placements.join(', ')}</Badge>
+                          {currentProvider === 'printful' && (
+                            <Badge variant="secondary">{item.placements.join(', ')}</Badge>
+                          )}
+                          {currentProvider === 'printify' && item.mockup_style_options?.print_provider_id && (
+                            <Badge variant="secondary">Provider #{item.mockup_style_options.print_provider_id}</Badge>
+                          )}
                         </div>
                         {item.variant_labels.length > 0 && (
                           <div className="text-xs text-muted-foreground mt-1">
@@ -162,18 +203,35 @@ export function PresetBuilderPage() {
           </Card>
         )}
 
-        {/* Product Browser */}
-        {showBrowser && !selectedProduct && (
+        {/* Printful Product Browser */}
+        {showBrowser && !selectedProduct && currentProvider === 'printful' && (
           <ProductBrowser
             onSelect={(product) => setSelectedProduct(product)}
             onClose={() => setShowBrowser(false)}
           />
         )}
 
-        {/* Variant Picker */}
-        {selectedProduct && (
+        {/* Printful Variant Picker */}
+        {selectedProduct && currentProvider === 'printful' && (
           <VariantPicker
             product={selectedProduct}
+            onConfirm={handleAddProduct}
+            onBack={() => setSelectedProduct(null)}
+          />
+        )}
+
+        {/* Printify Blueprint Browser */}
+        {showBrowser && !selectedProduct && currentProvider === 'printify' && (
+          <PrintifyBlueprintBrowser
+            onSelect={(blueprint) => setSelectedProduct(blueprint)}
+            onClose={() => setShowBrowser(false)}
+          />
+        )}
+
+        {/* Printify Variant Picker */}
+        {selectedProduct && currentProvider === 'printify' && (
+          <PrintifyVariantPicker
+            blueprint={selectedProduct}
             onConfirm={handleAddProduct}
             onBack={() => setSelectedProduct(null)}
           />

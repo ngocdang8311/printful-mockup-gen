@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Trash2, Zap } from 'lucide-react';
+import { Plus, Pencil, Trash2, Zap, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
@@ -20,6 +20,15 @@ export function PresetsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['presets'] });
       toast.success('Preset deleted');
+    },
+  });
+
+  const cloneMutation = useMutation({
+    mutationFn: api.clonePreset,
+    onSuccess: (cloned: any) => {
+      queryClient.invalidateQueries({ queryKey: ['presets'] });
+      toast.success('Preset cloned');
+      navigate(`/presets/${cloned.id}`);
     },
   });
 
@@ -57,7 +66,12 @@ export function PresetsPage() {
           {presets.map((preset: any) => (
             <Card key={preset.id}>
               <CardHeader>
-                <CardTitle>{preset.name}</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  {preset.name}
+                  {preset.provider === 'printify' && (
+                    <Badge variant="outline" className="text-xs font-normal">Printify</Badge>
+                  )}
+                </CardTitle>
                 {preset.description && (
                   <CardDescription>{preset.description}</CardDescription>
                 )}
@@ -82,6 +96,14 @@ export function PresetsPage() {
                 >
                   <Zap className="h-3 w-3 mr-1" />
                   Generate
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => cloneMutation.mutate(preset.id)}
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Clone
                 </Button>
                 <Button
                   size="sm"

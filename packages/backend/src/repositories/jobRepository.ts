@@ -4,6 +4,7 @@ export interface Job {
   id: number;
   preset_id: number;
   design_id: number;
+  provider: string;
   status: string;
   total_tasks: number;
   completed_tasks: number;
@@ -31,11 +32,11 @@ function parseTask(row: any): JobTask {
   return { ...row, mockup_urls: JSON.parse(row.mockup_urls || '[]') };
 }
 
-export function createJob(presetId: number, designId: number, totalTasks: number, outputDir: string): Job {
+export function createJob(presetId: number, designId: number, totalTasks: number, outputDir: string, provider = 'printful'): Job {
   runSql(`
-    INSERT INTO jobs (preset_id, design_id, status, total_tasks, output_dir)
-    VALUES (?, ?, 'pending', ?, ?)
-  `, [presetId, designId, totalTasks, outputDir]);
+    INSERT INTO jobs (preset_id, design_id, status, total_tasks, output_dir, provider)
+    VALUES (?, ?, 'pending', ?, ?, ?)
+  `, [presetId, designId, totalTasks, outputDir, provider]);
   const id = getLastInsertRowId();
   return queryOne<Job>('SELECT * FROM jobs WHERE id = ?', [id])!;
 }

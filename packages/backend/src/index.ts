@@ -9,6 +9,7 @@ import designsRouter from './routes/designs.js';
 import generationRouter from './routes/generation.js';
 import jobsRouter from './routes/jobs.js';
 import settingsRouter from './routes/settings.js';
+import printifyCatalogRouter from './routes/printifyCatalog.js';
 
 async function main() {
   // Ensure directories exist
@@ -37,6 +38,7 @@ async function main() {
   app.use('/api/generate', generationRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/settings', settingsRouter);
+  app.use('/api/printify', printifyCatalogRouter);
 
   // Health check
   app.get('/api/health', (_req, res) => {

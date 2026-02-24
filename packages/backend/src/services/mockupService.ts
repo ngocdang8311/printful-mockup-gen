@@ -8,11 +8,16 @@ import { PresetItem } from '../repositories/presetRepository.js';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export interface TaskSubmission {
-  presetItem: PresetItem;
+export interface PlacementDesign {
   designUrl: string;
   designWidth: number;
   designHeight: number;
+}
+
+export interface TaskSubmission {
+  presetItem: PresetItem;
+  defaultDesign: PlacementDesign;
+  placementDesigns?: Record<string, PlacementDesign>;
 }
 
 export interface TaskResult {
@@ -35,7 +40,6 @@ async function getPositionForPlacement(
   designHeight: number,
 ): Promise<any | null> {
   const printfiles = await catalogService.getProductPrintfiles(productId);
-  const templates = await catalogService.getProductTemplates(productId);
 
   // variant_printfiles is an array of { variant_id, placements: { front: printfile_id, ... } }
   const vpfList: any[] = Object.values(printfiles?.variant_printfiles || {});
@@ -45,13 +49,13 @@ async function getPositionForPlacement(
   const printfileId = vpf.placements?.[placement];
   if (!printfileId) return null;
 
-  // Find template matching this printfile_id
-  const templateList: any[] = templates?.templates || [];
-  const tmpl = templateList.find((t: any) => t.printfile_id === printfileId);
-  if (!tmpl || !tmpl.print_area_width) return null;
+  // Get printfile dimensions (this is the print area coordinate system)
+  const pfList: any[] = Object.values(printfiles?.printfiles || {});
+  const pf = pfList.find((p: any) => p.printfile_id === printfileId);
+  if (!pf) return null;
 
-  const areaW = tmpl.print_area_width;
-  const areaH = tmpl.print_area_height;
+  const areaW = pf.width;   // e.g. 1800
+  const areaH = pf.height;  // e.g. 2400
 
   // Fit design into print area while maintaining aspect ratio
   let fitW: number, fitH: number;
@@ -72,9 +76,9 @@ async function getPositionForPlacement(
     fitH = areaH;
   }
 
-  // Center within print area
-  const top = tmpl.print_area_top + Math.round((areaH - fitH) / 2);
-  const left = tmpl.print_area_left + Math.round((areaW - fitW) / 2);
+  // Center within print area (top/left are relative to print area, not template)
+  const top = Math.round((areaH - fitH) / 2);
+  const left = Math.round((areaW - fitW) / 2);
 
   return {
     area_width: areaW,
@@ -89,24 +93,44 @@ async function getPositionForPlacement(
 export async function submitMockupTask(
   submission: TaskSubmission
 ): Promise<{ taskKey: string }> {
-  const { presetItem, designUrl, designWidth, designHeight } = submission;
+  const { presetItem, defaultDesign, placementDesigns } = submission;
 
   // Use first variant to determine position
   const firstVariantId = presetItem.variant_ids[0];
 
+  // Validate placements against what the product actually supports
+  const printfiles = await catalogService.getProductPrintfiles(presetItem.product_id);
+  const validPlacements = new Set(Object.keys(printfiles?.available_placements || {}));
+
   const files = [];
   for (const placement of presetItem.placements) {
+    // Skip placements that don't exist for this product
+    if (validPlacements.size > 0 && !validPlacements.has(placement)) {
+      console.log(`[Mockup] Skipping invalid placement "${placement}" for product ${presetItem.product_id}`);
+      continue;
+    }
+
+    // Use per-placement design if available, otherwise default
+    const design = placementDesigns?.[placement] || defaultDesign;
+
     const userPos = (presetItem.position_config as any)?.[placement];
-    const autoPos = userPos || await getPositionForPlacement(presetItem.product_id, firstVariantId, placement, designWidth, designHeight);
+    const autoPos = userPos || await getPositionForPlacement(
+      presetItem.product_id, firstVariantId, placement,
+      design.designWidth, design.designHeight,
+    );
 
     const file: any = {
       placement,
-      image_url: designUrl,
+      image_url: design.designUrl,
     };
     if (autoPos) {
       file.position = autoPos;
     }
     files.push(file);
+  }
+
+  if (files.length === 0) {
+    throw new Error(`No valid placements for product ${presetItem.product_id}. Available: ${Array.from(validPlacements).join(', ')}`);
   }
 
   const body: CreateTaskRequest = {
@@ -123,8 +147,20 @@ export async function submitMockupTask(
     body.options = styleOpts.options;
   }
 
-  const result = await printfulClient.createMockupTask(presetItem.product_id, body);
-  return { taskKey: result.task_key };
+  try {
+    const result = await printfulClient.createMockupTask(presetItem.product_id, body);
+    return { taskKey: result.task_key };
+  } catch (err: any) {
+    // If option_groups caused a 400, retry without them
+    if (err.response?.status === 400 && (body.option_groups?.length || body.options?.length)) {
+      console.log(`[Mockup] Retrying product ${presetItem.product_id} without option_groups/options`);
+      delete body.option_groups;
+      delete body.options;
+      const result = await printfulClient.createMockupTask(presetItem.product_id, body);
+      return { taskKey: result.task_key };
+    }
+    throw err;
+  }
 }
 
 export async function pollForResult(
@@ -170,28 +206,33 @@ export async function downloadMockupImages(
   mockups: TaskResult['mockups'],
   outputDir: string,
   productSlug: string,
+  downloadAllExtras = false,
 ): Promise<string[]> {
   const downloaded: string[] = [];
 
   for (const mockup of mockups) {
     const placement = mockup.placement || 'default';
-    const placementDir = path.join(outputDir, productSlug, placement);
+    const placementDir = path.join(outputDir, productSlug);
     fs.mkdirSync(placementDir, { recursive: true });
 
+    // Always download the main mockup (matches the requested placement)
     const mainUrl = mockup.mockup_url;
     if (mainUrl) {
-      const filename = `mockup_${mockup.variant_ids?.join('-') || 'all'}.jpg`;
+      const filename = `${placement}_${mockup.variant_ids?.join('-') || 'all'}.jpg`;
       const filepath = path.join(placementDir, filename);
       await downloadFile(mainUrl, filepath);
       downloaded.push(filepath);
     }
 
-    for (const extra of mockup.extra || []) {
-      const extraSlug = slugify(extra.title || 'extra', { lower: true, strict: true });
-      const filename = `${extraSlug}_${mockup.variant_ids?.join('-') || 'all'}.jpg`;
-      const filepath = path.join(placementDir, filename);
-      await downloadFile(extra.url, filepath);
-      downloaded.push(filepath);
+    // Download all extras if enabled for this preset item
+    if (downloadAllExtras) {
+      for (const extra of mockup.extra || []) {
+        const extraSlug = slugify(extra.title || 'extra', { lower: true, strict: true });
+        const filename = `${extraSlug}_${mockup.variant_ids?.join('-') || 'all'}.jpg`;
+        const filepath = path.join(placementDir, filename);
+        await downloadFile(extra.url, filepath);
+        downloaded.push(filepath);
+      }
     }
   }
 

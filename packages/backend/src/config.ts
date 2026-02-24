@@ -9,6 +9,8 @@ dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
   printfulToken: process.env.PRINTFUL_TOKEN || '',
+  printifyToken: process.env.PRINTIFY_TOKEN || '',
+  printifyShopId: process.env.PRINTIFY_SHOP_ID || '',
   publicUrl: process.env.PUBLIC_URL || 'http://localhost:3001',
   nodeEnv: process.env.NODE_ENV || 'development',
   dbPath: path.resolve(__dirname, '../../../data.db'),
