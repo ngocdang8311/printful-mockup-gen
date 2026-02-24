@@ -4,8 +4,7 @@ services:
       context: .
       dockerfile: Containerfile
     container_name: mockup-gen
-    ports:
-      - "127.0.0.1:3003:3003"
+    network_mode: host
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
