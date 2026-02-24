@@ -1,4 +1,4 @@
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import initSqlJs, { Database } from 'sql.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -6,7 +6,7 @@ import { config } from '../config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let db: SqlJsDatabase;
+let db: Database;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 export async function initDb(): Promise<void> {
@@ -22,7 +22,7 @@ export async function initDb(): Promise<void> {
   db.run('PRAGMA foreign_keys = ON');
 }
 
-export function getDb(): SqlJsDatabase {
+export function getDb(): Database {
   if (!db) throw new Error('Database not initialized. Call initDb() first.');
   return db;
 }
@@ -59,7 +59,7 @@ export function runMigrations(): void {
 
   const appliedRows = database.exec('SELECT name FROM _migrations');
   const applied = new Set(
-    appliedRows.length > 0 ? appliedRows[0].values.map(row => row[0] as string) : []
+    appliedRows.length > 0 ? appliedRows[0].values.map((row: any) => row[0] as string) : []
   );
 
   const files = fs.readdirSync(migrationsDir)
