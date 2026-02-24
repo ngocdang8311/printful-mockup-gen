@@ -14,12 +14,6 @@ import settingsRouter from './routes/settings.js';
 import printifyCatalogRouter from './routes/printifyCatalog.js';
 
 async function main() {
-  // Fail-fast: require API_SECRET in production
-  if (config.nodeEnv === 'production' && !config.apiSecret) {
-    console.error('ERROR: API_SECRET is required in production. Set it in .env.production');
-    process.exit(1);
-  }
-
   // Ensure directories exist
   fs.mkdirSync(config.uploadsDir, { recursive: true });
   fs.mkdirSync(config.outputDir, { recursive: true });

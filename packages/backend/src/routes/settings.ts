@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -9,19 +9,7 @@ const envPath = path.resolve(__dirname, '../../../../.env');
 
 const router = Router();
 
-// Auth guard: require x-api-secret header
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const secret = config.apiSecret;
-  if (!secret) return next(); // no secret configured = open access (dev mode)
-  const provided = req.headers['x-api-secret'];
-  if (provided !== secret) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-  next();
-}
-
-router.use(requireAuth);
+// Auth is handled by Cloudflare Zero Trust at the tunnel level
 
 function parseEnvFile(): Record<string, string> {
   if (!fs.existsSync(envPath)) return {};
