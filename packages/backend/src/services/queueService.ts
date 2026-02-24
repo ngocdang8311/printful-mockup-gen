@@ -169,6 +169,8 @@ async function processPrintfulJob(
           [async () => mockupService.downloadMockupImages(result.mockups, outputDir, productSlug, downloadAllExtras)]
         );
 
+        if (isJobCancelled(jobId)) return;
+
         const mockupUrls = result.mockups.flatMap(m => {
           const urls = m.mockup_url ? [m.mockup_url] : [];
           if (downloadAllExtras && m.extra) {
@@ -272,6 +274,8 @@ async function processPrintifyJob(
         await downloadQueue.addAll(
           [async () => printifyMockupService.downloadMockupImages(result.mockups, outputDir, productSlug)]
         );
+
+        if (isJobCancelled(jobId)) return;
 
         const mockupUrls = result.mockups.map(m => m.src).filter(Boolean);
         jobRepo.updateJobTask(dbTask.id, { status: 'completed', mockup_urls: mockupUrls });

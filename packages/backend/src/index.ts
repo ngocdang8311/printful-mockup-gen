@@ -14,6 +14,12 @@ import settingsRouter from './routes/settings.js';
 import printifyCatalogRouter from './routes/printifyCatalog.js';
 
 async function main() {
+  // Fail-fast: require API_SECRET in production
+  if (config.nodeEnv === 'production' && !config.apiSecret) {
+    console.error('ERROR: API_SECRET is required in production. Set it in .env.production');
+    process.exit(1);
+  }
+
   // Ensure directories exist
   fs.mkdirSync(config.uploadsDir, { recursive: true });
   fs.mkdirSync(config.outputDir, { recursive: true });
@@ -24,7 +30,10 @@ async function main() {
 
   const app = express();
 
-  app.use(cors());
+  app.use(cors(config.nodeEnv === 'production' && config.publicUrl
+    ? { origin: config.publicUrl }
+    : undefined
+  ));
   app.use(express.json());
 
   // Serve uploaded files
@@ -45,6 +54,11 @@ async function main() {
   // Health check
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', publicUrl: config.publicUrl });
+  });
+
+  // API 404 handler — must come before SPA fallback
+  app.all('/api/*', (_req, res) => {
+    res.status(404).json({ error: 'Not found' });
   });
 
   // Serve frontend

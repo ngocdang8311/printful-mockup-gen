@@ -9,11 +9,11 @@ const envPath = path.resolve(__dirname, '../../../../.env');
 
 const router = Router();
 
-// Auth guard: require API_SECRET header for write operations
+// Auth guard: require x-api-secret header
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   const secret = config.apiSecret;
   if (!secret) return next(); // no secret configured = open access (dev mode)
-  const provided = req.headers['x-api-secret'] || req.query.secret;
+  const provided = req.headers['x-api-secret'];
   if (provided !== secret) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
